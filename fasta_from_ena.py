@@ -71,7 +71,7 @@ def open_xml(fp=None):
         })
 
     df = pd.DataFrame.from_dict(master, orient="index")
-    df = df.loc[df["taxon"].str.startswith("Escherichia coli")]
+#     df = df.loc[df["taxon"].str.startswith("Escherichia coli")]
     df = df.astype({'contigs' : int, 'length': int})
 
     return df
