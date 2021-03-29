@@ -6,12 +6,14 @@ import shutil
 import urllib.request as request
 import xml.etree.ElementTree as ET
 from contextlib import closing
-from os import path, remove
+from os import path, remove, mkdir
+from urllib.error import URLError
+from zlib import error as zlibError
 
 import numpy as np
 import pandas as pd
 
-__doc__=f"""
+f"""
 Download FASTA files from ENA using an XML report of a search.
 Simply provide the XML file as input and specify an output directory to download FASTA files to.
 An Excel file is created as a record of all the downloaded files.
@@ -34,13 +36,13 @@ def open_xml(fp=None):
 
         try:
             unique_id = node.find('.//WGS_SET/PREFIX').text + '0' + node.find('.//WGS_SET/VERSION').text
-        except:
+        except AttributeError:
             unique_id = alias
 
         taxon = node.find('.//TAXON/SCIENTIFIC_NAME').text
         try:
             strain = node.find('.//TAXON/STRAIN').text
-        except:
+        except AttributeError:
             strain = np.NaN
 
         FASTA = np.NaN
@@ -71,28 +73,37 @@ def open_xml(fp=None):
         })
 
     df = pd.DataFrame.from_dict(master, orient="index")
-#     df = df.loc[df["taxon"].str.startswith("Escherichia coli")]
+    # df = df.loc[df["taxon"].str.startswith("Escherichia coli")]
     df = df.astype({'contigs' : int, 'length': int})
 
     return df
 
 
-def get_FASTA(taxon=None, url=None, fp=None):
+def get_FASTA(url=None, fp=None):
     with closing(request.urlopen(url)) as r, open(fp, 'wb') as f:
         shutil.copyfileobj(r, f)
 
 
-def unzip_gz(taxon=None, zin=None, zout=None):
-    with gzip.open(zin, 'rb') as f_in, open(zout, 'wb') as f_out:
-        shutil.copyfileobj(f_in, f_out)
+def unzip_gz(zin=None, zout=None):
+    try:
+        with gzip.open(zin, 'rb') as f_in, open(zout, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    except zlibError:
+        print(f"File could not be unzipped: {zin}")
+        return
     remove(zin)
 
 
 def to_excel(df=None, fp=None):
+    fp = path.join(fp, "summary.xlsx")
     df.to_excel(fp)
 
 
-def main(*args, xml_fp=None, output=None, **kwargs):
+def main(xml_fp=None, output=None):
+
+
+    if not path.isdir("FASTA"):
+        mkdir("FASTA")
 
     df = open_xml(fp=xml_fp)
 
@@ -106,21 +117,23 @@ def main(*args, xml_fp=None, output=None, **kwargs):
         zipped = unzipped + ".gz"
         
         try:
-            get_FASTA(taxon=unique_id, url=url, fp=zipped)
-        except:
+            get_FASTA(url=url, fp=zipped)
+        except (AttributeError, URLError):
             print(f"FASTA not available for {unique_id}")
             continue
         
-        unzip_gz(taxon=unique_id, zin=zipped, zout=unzipped)
+        unzip_gz(zin=zipped, zout=unzipped)
 
 
-parser = argparse.ArgumentParser(description=__doc__)
+def parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
 
-parser.add_argument('-i', '--input', type=str)
-parser.add_argument('-o', '--output', type=str)
+    parser.add_argument('-i', '--input', type=str)
+    parser.add_argument('-o', '--output', type=str)
 
-args = parser.parse_args()
+    args = parser.parse_args()
+    main(xml_fp=args.input, output=args.output)
 
 
 if __name__ == "__main__":
-    main(xml_fp=args.input, output=args.output)
+    parse_arguments()
